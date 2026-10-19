@@ -45,7 +45,6 @@ def gnielinski(Re, Pr):
     (Incropera Eq. 8.62), with f from petukhov_friction.
     Valid: 3000 < Re < 5e6, 0.5 < Pr < 2000.
     """
-    # TODO
     if Re < 3000 or Re > 5e6 or Pr < 0.5 or Pr > 2000:
         raise ValueError(f"Re = {Re}, Pr = {Pr} are out of range for gnielinski")
     else:
