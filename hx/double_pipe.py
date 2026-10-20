@@ -20,6 +20,7 @@ class Stream:
     mu: float     # Pa.s
     k: float      # W/m.K
     T_in: float   # degC
+    rho: float = None   # kg/m3, only needed for velocities / pressure drop
 
     @property
     def Pr(self):
