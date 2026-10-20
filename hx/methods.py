@@ -113,9 +113,42 @@ def ntu_shell_1_2(eps, Cr):
 
     Raise ValueError if E <= 1 (eps too high for a single 1-2 shell).
     """
-    # TODO
     E = (2 / eps - (1 + Cr)) / np.sqrt(1 + Cr**2)
     if E <= 1:
         raise ValueError(f"eps={eps} is too high for a single 1-2 shell with Cr={Cr}")
     NTU = -np.log((E - 1) / (E + 1)) / np.sqrt(1 + Cr**2)
+    return NTU
+
+
+# TODO TOMMOROW
+#
+#
+#
+def effectiveness_crossflow_unmixed(NTU, Cr):
+    """Crossflow, both fluids unmixed (Incropera Eq. 11.32)."""
+    if np.isclose(Cr, 0):
+        eps = 1 - np.exp(-NTU)
+    else:
+        inner = np.exp(-Cr * NTU**0.78) - 1         
+        eps = 1 - np.exp((1 / Cr) * NTU**0.22 * inner) 
+    return eps
+
+
+def ntu_crossflow_unmixed(eps, Cr):
+    """Inverse of the above, found numerically.
+
+    Hint: scipy.optimize.brentq(f, a, b) finds x in [a, b] where f(x) = 0,
+    as long as f(a) and f(b) have opposite signs.
+      - write a small function of NTU that is zero at the answer
+      - choose a bracket, e.g. a = 1e-6, b = 50
+      - raise ValueError if eps is unreachable (f(b) still < 0)
+    """
+    # TODO
+    def f(NTU):
+        return effectiveness_crossflow_unmixed(NTU, Cr) - eps
+    try:
+        from scipy.optimize import brentq
+        NTU = brentq(f, 1e-6, 50)
+    except ValueError:
+        raise ValueError(f"eps={eps} is unreachable for Cr={Cr}")
     return NTU

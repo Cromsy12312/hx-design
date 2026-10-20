@@ -1,5 +1,6 @@
 import numpy as np
-from hx.methods import heat_capacity_rate, lmtd, effectiveness, ntu_from_effectiveness
+import pytest
+from hx.methods import heat_capacity_rate, lmtd, effectiveness, ntu_from_effectiveness, effectiveness_crossflow_unmixed, ntu_crossflow_unmixed
 
 # Incropera Ex 11.1 data
 m_h, cp_h = 0.1, 2131      # oil
@@ -74,3 +75,35 @@ def test_shell_lmtd_and_ntu_agree():
 def test_shell_roundtrip():
     eps = effectiveness_shell_1_2(1.2, 0.6)
     assert np.isclose(ntu_shell_1_2(eps, 0.6), 1.2)
+
+
+def test_crossflow_incropera_11_3_sizing():
+    """Book reads NTU ~ 2.0 from Fig 11.14 -> A = 37.8 m2; exact equation gives ~38.3 m2."""
+    Cmin, Cmax, U = 1889, 4197, 100
+    eps = (4197 * (125 - 35)) / (Cmin * (300 - 35))      # = 0.755
+    NTU = ntu_crossflow_unmixed(eps, Cmin / Cmax)
+    A = NTU * Cmin / U
+    assert abs(A - 37.8) / 37.8 < 0.02
+
+
+def test_crossflow_incropera_11_4_rating():
+    """Book reads eps = 0.82 from the chart; exact equation gives ~0.845."""
+    NTU = 100 * 40 / 1500
+    eps = effectiveness_crossflow_unmixed(NTU, 1500 / 4197)
+    assert abs(eps - 0.82) / 0.82 < 0.04
+
+
+def test_crossflow_roundtrip():
+    for NTU, Cr in [(0.5, 0.2), (1.5, 0.6), (3.0, 1.0)]:
+        eps = effectiveness_crossflow_unmixed(NTU, Cr)
+        assert np.isclose(ntu_crossflow_unmixed(eps, Cr), NTU, rtol=1e-6)
+
+
+def test_crossflow_cr_zero_limit():
+    """With one fluid of infinite capacity, every arrangement gives eps = 1 - exp(-NTU)."""
+    assert np.isclose(effectiveness_crossflow_unmixed(2.0, 0.0), 1 - np.exp(-2.0))
+
+
+def test_crossflow_unreachable_eps_raises():
+    with pytest.raises(ValueError):
+        ntu_crossflow_unmixed(1.0, 0.5)
