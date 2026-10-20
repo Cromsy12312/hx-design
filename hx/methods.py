@@ -63,3 +63,59 @@ def ntu_from_effectiveness(eps, Cr, arrangement="counterflow"):
     else:
         raise ValueError(f"Unknown arrangement: {arrangement!r}")
     return NTU
+
+def f_factor_1_2(R, S):
+    """LMTD correction factor F for 1 shell pass, 2 (or 2n) tube passes.
+
+    R = (Th_in - Th_out) / (Tc_out - Tc_in)
+    S = (Tc_out - Tc_in) / (Th_in - Tc_in)
+
+    F = sqrt(R^2+1) * ln[(1-S)/(1-R*S)]
+        / ( (R-1) * ln[ (2 - S(R+1-sqrt(R^2+1))) / (2 - S(R+1+sqrt(R^2+1))) ] )
+
+    Special case R == 1 (formula is 0/0):
+    F = (sqrt(2) * S/(1-S)) / ln[ (2 - S(2-sqrt(2))) / (2 - S(2+sqrt(2))) ]
+
+    Raise ValueError if the logs' arguments are <= 0: that combination of
+    temperatures is impossible in a single 1-2 shell (needs more shells).
+    """
+    R = float(R)
+    S = float(S)
+    if R == 1:
+        if S >= 1:
+            raise ValueError(f"Impossible combination of temperatures: R={R}, S={S}")
+        else: 
+            F = (np.sqrt(2) * S / (1 - S)) / np.log((2 - S * (2 - np.sqrt(2))) / (2 - S * (2 + np.sqrt(2))))
+    else:
+        if S >= 1 or (1 - R * S) <= 0 or (2 - S * (R + 1 - np.sqrt(R**2 + 1))) <= 0 or (2 - S * (R + 1 + np.sqrt(R**2 + 1))) <= 0:
+            raise ValueError(f"Impossible combination of temperatures: R={R}, S={S}")
+        else:
+            F = np.sqrt(R**2 + 1) * np.log((1 - S) / (1 - R * S)) / ((R - 1) * np.log((2 - S * (R + 1 - np.sqrt(R**2 + 1))) / (2 - S * (R + 1 + np.sqrt(R**2 + 1)))))
+    
+    return F
+
+
+def effectiveness_shell_1_2(NTU, Cr):
+    """eps for one shell pass, 2n tube passes (Incropera Eq. 11.30a):
+
+    eps = 2 / ( 1 + Cr + sqrt(1+Cr^2) * (1 + exp(-NTU*sqrt(1+Cr^2)))
+                                       / (1 - exp(-NTU*sqrt(1+Cr^2))) )
+    """
+    eps = 2 / (1 + Cr + np.sqrt(1 + Cr**2) * (1 + np.exp(-NTU * np.sqrt(1 + Cr**2))) / (1 - np.exp(-NTU * np.sqrt(1 + Cr**2))))
+    return eps
+
+
+def ntu_shell_1_2(eps, Cr):
+    """Inverse of the above (Incropera Eq. 11.31a/b):
+
+    E   = (2/eps - (1+Cr)) / sqrt(1+Cr^2)
+    NTU = -ln((E-1)/(E+1)) / sqrt(1+Cr^2)
+
+    Raise ValueError if E <= 1 (eps too high for a single 1-2 shell).
+    """
+    # TODO
+    E = (2 / eps - (1 + Cr)) / np.sqrt(1 + Cr**2)
+    if E <= 1:
+        raise ValueError(f"eps={eps} is too high for a single 1-2 shell with Cr={Cr}")
+    NTU = -np.log((E - 1) / (E + 1)) / np.sqrt(1 + Cr**2)
+    return NTU

@@ -45,3 +45,32 @@ def test_balanced_counterflow_edge_case():
     assert np.isclose(effectiveness(2.0, 1.0), 2 / 3)
 
 
+from hx.methods import f_factor_1_2, effectiveness_shell_1_2, ntu_shell_1_2
+
+
+def test_f_factor_sinnott_12_1():
+    """Sinnott reads F = 0.85 from a chart; the exact formula gives 0.812."""
+    R = (95 - 40) / (40 - 25)
+    S = (40 - 25) / (95 - 25)
+    assert abs(f_factor_1_2(R, S) - 0.812) < 0.002
+
+
+def test_f_factor_limits():
+    assert np.isclose(f_factor_1_2(2.0, 1e-6), 1.0, atol=1e-3)   # tiny S -> F ~ 1
+    assert 0 < f_factor_1_2(1.0, 0.5) < 1                          # R = 1 branch works
+
+
+def test_shell_lmtd_and_ntu_agree():
+    """F*LMTD sizing and shell eps-NTU sizing must give the same UA."""
+    Ch, Cc = 1.0, 55 / 15            # Sinnott 12.1 ratio: hot changes 55 K, cold 15 K
+    q = Ch * (95 - 40)
+    R, S = (95 - 40) / (40 - 25), (40 - 25) / (95 - 25)
+    UA_lmtd = q / (f_factor_1_2(R, S) * lmtd(95, 40, 25, 40))
+    eps = q / (Ch * (95 - 25))
+    UA_ntu = ntu_shell_1_2(eps, Ch / Cc) * Ch
+    assert np.isclose(UA_lmtd, UA_ntu, rtol=1e-9)
+
+
+def test_shell_roundtrip():
+    eps = effectiveness_shell_1_2(1.2, 0.6)
+    assert np.isclose(ntu_shell_1_2(eps, 0.6), 1.2)
