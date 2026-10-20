@@ -1,4 +1,4 @@
-from hx.double_pipe import Stream, size_double_pipe
+from hx.double_pipe import Stream, size_double_pipe, rate_double_pipe
 
 # Incropera Ex 11.1, book property values
 oil = Stream(m_dot=0.1, cp=2131, mu=3.25e-2, k=0.138, T_in=100)
@@ -31,3 +31,18 @@ def test_gnielinski_barely_changes_length():
     L_db = run("dittus_boelter")["L"]
     L_gn = run("gnielinski")["L"]
     assert abs(L_gn - L_db) / L_db < 0.01
+
+
+def test_rating_inverts_sizing():
+    """Rate the exchanger we just sized -> must recover Th_out = 60 C."""
+    L = run("dittus_boelter")["L"]
+    r = rate_double_pipe(oil, water, L=L, Di=0.025, Do=0.045,
+                         hot_in="annulus", method="dittus_boelter")
+    assert abs(r["Th_out"] - 60.0) < 1e-6
+    assert abs(r["Tc_out"] - 40.2) < 0.01
+
+
+def test_longer_exchanger_cools_more():
+    r1 = rate_double_pipe(oil, water, L=40, Di=0.025, Do=0.045)
+    r2 = rate_double_pipe(oil, water, L=80, Di=0.025, Do=0.045)
+    assert r2["Th_out"] < r1["Th_out"]

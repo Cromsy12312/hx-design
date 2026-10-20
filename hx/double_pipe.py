@@ -5,7 +5,7 @@ Thin-walled inner tube assumed (wall resistance neglected), as in Incropera Ex 1
 from dataclasses import dataclass
 import numpy as np
 
-from hx.methods import heat_capacity_rate, lmtd
+from hx.methods import effectiveness, heat_capacity_rate, lmtd
 from hx.correlations import (
     reynolds_from_mdot, nu_tube, nu_laminar_annulus_inner, RE_LAMINAR,
 )
@@ -23,6 +23,35 @@ class Stream:
     @property
     def Pr(self):
         return self.cp * self.mu / self.k
+
+def _overall_U(hot, cold, Di, Do, hot_in, method, Rf_i, Rf_o):
+    """Tube/annulus film coefficients and thin-wall overall U.
+    Returns dict with Re_i, Re_o, h_i, h_o, U."""
+    tube_area = np.pi * Di**2 / 4
+    annulus_area = np.pi * (Do**2 - Di**2) / 4
+    Dh_tube = Di
+    Dh_annulus = Do - Di
+    if hot_in == "annulus":
+        tube_fluid, ann_fluid = cold, hot
+    elif hot_in == "tube":
+        tube_fluid, ann_fluid = hot, cold
+    else:
+        raise ValueError(f"hot_in must be 'tube' or 'annulus', got {hot_in!r}")
+    tube_heated = tube_fluid is cold   # the cold stream is the one being heated
+    
+    Re_i = reynolds_from_mdot(tube_fluid.m_dot, Dh_tube, tube_fluid.mu, tube_area)
+    Re_o = reynolds_from_mdot(ann_fluid.m_dot, Dh_annulus, ann_fluid.mu, annulus_area)
+    
+    Nu_i = nu_tube(Re_i, tube_fluid.Pr, method=method, heating=tube_heated)
+    if Re_o < RE_LAMINAR:
+        Nu_o = nu_laminar_annulus_inner(Di / Do)
+    else:
+        Nu_o = nu_tube(Re_o, ann_fluid.Pr, method=method, heating=not tube_heated)
+    
+    h_i = Nu_i * tube_fluid.k / Dh_tube
+    h_o = Nu_o * ann_fluid.k / Dh_annulus
+    U = 1 / (1 / h_i + Rf_i + Rf_o + 1 / h_o)
+    return dict(Re_i=Re_i, Re_o=Re_o, h_i=h_i, h_o=h_o, U=U)
 
 
 def size_double_pipe(hot, cold, Th_out, Di, Do, hot_in="annulus",
@@ -46,30 +75,34 @@ def size_double_pipe(hot, cold, Th_out, Di, Do, hot_in="annulus",
     q = hot.m_dot * hot.cp * (hot.T_in - Th_out)
     tc_out = cold.T_in + q / (cold.m_dot * cold.cp)
     LMTD = lmtd(Th_in=hot.T_in, Th_out=Th_out, Tc_in=cold.T_in, Tc_out=tc_out, arrangement=arrangement)
-    tube_area = np.pi * Di**2 / 4
-    annulus_area = np.pi * (Do**2 - Di**2) / 4
-    Dh_tube = Di
-    Dh_annulus = Do - Di
-    if hot_in == "annulus":
-        tube_fluid, ann_fluid = cold, hot
-    elif hot_in == "tube":
-        tube_fluid, ann_fluid = hot, cold
-    else:
-        raise ValueError(f"hot_in must be 'tube' or 'annulus', got {hot_in!r}")
-    tube_heated = tube_fluid is cold   # the cold stream is the one being heated
+    film = _overall_U(hot, cold, Di, Do, hot_in, method, Rf_i, Rf_o)
+    L = q / (film["U"] * np.pi * Di * LMTD)
+    return dict(q=q, Tc_out=tc_out, LMTD=LMTD, L=L, **film)
 
-    Re_i = reynolds_from_mdot(tube_fluid.m_dot, Dh_tube, tube_fluid.mu, tube_area)
-    Re_o = reynolds_from_mdot(ann_fluid.m_dot, Dh_annulus, ann_fluid.mu, annulus_area)
+def rate_double_pipe(hot, cold, L, Di, Do, hot_in="annulus",
+                     arrangement="counterflow", method="gnielinski",
+                     Rf_i=0.0, Rf_o=0.0):
+    """Outlet temperatures and duty for an exchanger of known length L.
 
-    Nu_i = nu_tube(Re_i, tube_fluid.Pr, method=method, heating=tube_heated)
-    if Re_o < RE_LAMINAR:
-        Nu_o = nu_laminar_annulus_inner(Di / Do)
-    else:
-        Nu_o = nu_tube(Re_o, ann_fluid.Pr, method=method, heating=not tube_heated)
+    Steps:
+      1. U from _overall_U  (properties are fixed, so U doesn't need the outlets)
+      2. A = pi * Di * L
+      3. Ch, Cc; Cmin, Cmax; Cr = Cmin/Cmax
+      4. NTU = U*A/Cmin  ->  eps = effectiveness(NTU, Cr, arrangement)
+      5. q = eps * Cmin * (Th_in - Tc_in)
+      6. Th_out = Th_in - q/Ch ;  Tc_out = Tc_in + q/Cc
 
-    h_i = Nu_i * tube_fluid.k / Dh_tube
-    h_o = Nu_o * ann_fluid.k / Dh_annulus
-    U = 1 / (1 / h_i + Rf_i + Rf_o + 1 / h_o)
-    L = q / (U * np.pi * Di * LMTD)
-    return dict(q=q, Tc_out=tc_out, LMTD=LMTD, Re_i=Re_i, Re_o=Re_o,
-                h_i=h_i, h_o=h_o, U=U, L=L)
+    Returns dict with q, Th_out, Tc_out, NTU, eps, U.
+    """
+    film = _overall_U(hot, cold, Di, Do, hot_in, method, Rf_i, Rf_o)
+    A = np.pi * Di * L
+    Ch = heat_capacity_rate(hot.m_dot, hot.cp)
+    Cc = heat_capacity_rate(cold.m_dot, cold.cp)
+    C_min, C_max = min(Ch, Cc), max(Ch, Cc)
+    Cr = C_min / C_max
+    NTU = film["U"] * A / C_min
+    eps = effectiveness(NTU, Cr, arrangement)
+    q = eps * C_min * (hot.T_in - cold.T_in)
+    Th_out = hot.T_in - q / Ch
+    Tc_out = cold.T_in + q / Cc
+    return dict(q=q, Th_out=Th_out, Tc_out=Tc_out, NTU=NTU, eps=eps, U=film["U"])
