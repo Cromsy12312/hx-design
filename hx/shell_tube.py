@@ -6,7 +6,7 @@ References:
 from dataclasses import dataclass
 import numpy as np
 
-from hx.correlations import nu_tube
+from hx.correlations import haaland_friction, nu_tube
 
 # Sinnott Table 12.4: bundle diameter constants, pitch = 1.25 do
 # {layout: {tube passes: (K1, n1)}}
@@ -97,3 +97,39 @@ def overall_U_shell_tube(h_s, h_i, geom, R_fo=0.0, R_fi=0.0):
     R_wall = geom.do * np.log(geom.do / geom.di) / (2 * geom.k_wall)
     Uo = 1 / (1 / h_s + R_fo + R_wall+ (geom.do / geom.di) * R_fi + (geom.do / geom.di) / h_i)
     return Uo
+
+def jf_shell_kern(Re, baffle_cut=25):
+    """Shell-side friction factor, Sinnott Fig. 12.30, 25% baffle cut.
+    Power-law fit digitised from the chart: jf = 0.183 Re^-0.142 (1e4 < Re < 1e6).
+    Raise ValueError for any other baffle cut (not digitised).
+    """
+    if baffle_cut != 25:
+        raise ValueError(f"Only 25% baffle cut is implemented, got {baffle_cut}")
+    else:
+        if Re < 1e4 or Re > 1e6:
+            raise ValueError(f"Re = {Re} is out of range for jf_shell_kern")
+        else:
+            jf = 0.183 * Re**-0.142
+    return jf
+
+
+
+def tube_side_dp(geom, fluid, tube, roughness=0.0):
+    """Tube-side pressure drop (Sinnott Eq. 12.20, viscosity correction neglected):
+    dP = n_passes * ( f * L/di + 2.5 ) * rho * u^2 / 2
+    f = Darcy friction factor from haaland_friction(Re, roughness/di)
+    (Sinnott writes 8*jf; 8*jf is the Darcy f.) The 2.5 is the return losses per pass.
+    `tube` is the dict returned by tube_side().
+    """
+    dP = geom.n_passes * (haaland_friction(tube["Re"], roughness / geom.di) * geom.L / geom.di + 2.5) * fluid.rho * tube["u"]**2 / 2
+    return dP
+  
+
+
+def shell_side_dp(geom, fluid, shell, baffle_cut=25):
+    """Shell-side pressure drop (Sinnott Eq. 12.26, viscosity correction neglected):
+    dP = 8 * jf * (Ds/de) * (L/lB) * rho * us^2 / 2
+    `shell` is the dict returned by shell_side_kern().
+    """
+    dP = 8 * jf_shell_kern(shell["Re"], baffle_cut) * (geom.Ds / shell["de"]) * (geom.L / geom.baffle_spacing) * fluid.rho * shell["us"]**2 / 2
+    return dP

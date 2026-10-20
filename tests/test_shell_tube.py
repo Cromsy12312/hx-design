@@ -41,3 +41,38 @@ def test_book_h_values_reproduce_book_U():
     """Feeding the book's own h values in must give exactly the book's U."""
     U = overall_U_shell_tube(2740, 3812, geom, R_fo=1 / 5000, R_fi=1 / 3000)
     assert abs(U - 738) < 1
+
+from dataclasses import replace
+from hx.shell_tube import jf_shell_kern, tube_side_dp, shell_side_dp
+
+
+def test_jf_shell_matches_book_reading():
+    assert abs(jf_shell_kern(36762) - 0.04) / 0.04 < 0.05
+
+
+def test_tube_dp_rough_close_to_book():
+    t = tube_side(geom, water)
+    dp_rough = tube_side_dp(geom, water, t, roughness=45e-6)
+    dp_smooth = tube_side_dp(geom, water, t, roughness=0.0)
+    assert abs(dp_rough - 7211) / 7211 < 0.06
+    assert dp_smooth < dp_rough
+
+
+def test_shell_dp_close_to_book():
+    s = shell_side_kern(geom, methanol)
+    assert abs(shell_side_dp(geom, methanol, s) - 272e3) / 272e3 < 0.07
+
+
+def test_doubling_baffle_spacing():
+    """Book estimates 68 kPa; full recalculation gives ~39 kPa (L/lB also halves)."""
+    wide = replace(geom, baffle_spacing=2 * geom.baffle_spacing)
+    s1, s2 = shell_side_kern(geom, methanol), shell_side_kern(wide, methanol)
+    dp1, dp2 = shell_side_dp(geom, methanol, s1), shell_side_dp(wide, methanol, s2)
+    assert 6 < dp1 / dp2 < 8.5                       # ~1/7, not the book's 1/4
+    assert abs(s2["h_s"] / s1["h_s"] - 2**-0.55) < 0.01
+
+
+def test_jf_rejects_other_baffle_cuts():
+    import pytest
+    with pytest.raises(ValueError):
+        jf_shell_kern(36762, baffle_cut=35)

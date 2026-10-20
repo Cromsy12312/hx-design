@@ -85,3 +85,7 @@ def nu_tube(Re, Pr, method="gnielinski", heating=True):
     else:
         raise ValueError(f"Unknown method: {method}")
     return Nu   
+
+def haaland_friction(Re, rel_roughness=0.0):
+    X = -1.8 * np.log10((rel_roughness / 3.7) ** 1.11 + 6.9 / Re)
+    return 1 / X**2
