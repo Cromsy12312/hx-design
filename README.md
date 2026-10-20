@@ -1,7 +1,4 @@
 # hx-design
-Heat Exchanger Project.
-
-# hx-design
 
 Heat exchanger sizing and rating tool for industrial and aero-engine applications.
 *(intro: write Friday)*
