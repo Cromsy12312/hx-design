@@ -1,4 +1,4 @@
-from hx.double_pipe import Stream, size_double_pipe, rate_double_pipe
+from hx.double_pipe import Stream, size_double_pipe, rate_double_pipe, rate_double_pipe_auto
 
 # Incropera Ex 11.1, book property values
 oil = Stream(m_dot=0.1, cp=2131, mu=3.25e-2, k=0.138, T_in=100)
@@ -46,3 +46,13 @@ def test_longer_exchanger_cools_more():
     r1 = rate_double_pipe(oil, water, L=40, Di=0.025, Do=0.045)
     r2 = rate_double_pipe(oil, water, L=80, Di=0.025, Do=0.045)
     assert r2["Th_out"] < r1["Th_out"]
+
+
+
+def test_auto_rating_converges_near_book():
+    """With real properties, the outlet should land close to the book's 60 C."""
+    r = rate_double_pipe_auto("engine_oil", "water", m_hot=0.1, m_cold=0.2,
+                              Th_in=100, Tc_in=30, L=65.9, Di=0.025, Do=0.045,
+                              hot_in="annulus", method="dittus_boelter")
+    assert r["iterations"] < 20
+    assert abs(r["Th_out"] - 60) < 0.3

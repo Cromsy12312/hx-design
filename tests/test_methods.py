@@ -43,3 +43,5 @@ def test_effectiveness_roundtrip():
 def test_balanced_counterflow_edge_case():
     assert np.isclose(lmtd(80, 50, 20, 50), 30)
     assert np.isclose(effectiveness(2.0, 1.0), 2 / 3)
+
+
