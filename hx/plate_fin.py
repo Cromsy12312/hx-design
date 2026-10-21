@@ -7,7 +7,9 @@ References:
 from dataclasses import dataclass
 import numpy as np
 
+from hx.double_pipe import Stream
 from hx.methods import effectiveness_crossflow_unmixed, heat_capacity_rate
+from hx.properties import props
 
 
 @dataclass
@@ -39,7 +41,7 @@ class OffsetStripFin:
         return D_h
 
 
-def j_manglik_bergles(Re, fin):
+def j_manglik_bergles(Re, fin, check_range=True):
     """Colburn j factor:
     j = 0.6522 Re^-0.5403 alpha^-0.1541 delta^0.1499 gamma^-0.0678
         * [1 + 5.269e-5 Re^1.340 alpha^0.504 delta^0.456 gamma^-1.055]^0.1
@@ -47,7 +49,7 @@ def j_manglik_bergles(Re, fin):
     Raise ValueError outside the fitted range 120 <= Re <= 10,000.
     """
     # TODO
-    if not (120 <= Re <= 10000):
+    if check_range and (Re < 120 or Re > 10000):
         raise ValueError(f"Re = {Re} is out of range for j_manglik_bergles")
     else:
         j = 0.6522 * Re**-0.5403 * fin.alpha**-0.1541 * fin.delta**0.1499 * fin.gamma**-0.0678 * (1 + 5.269e-5 * Re**1.340 * fin.alpha**0.504 * fin.delta**0.456 * fin.gamma**-1.055)**0.1
@@ -55,14 +57,14 @@ def j_manglik_bergles(Re, fin):
     
 
 
-def f_manglik_bergles(Re, fin):
+def f_manglik_bergles(Re, fin, check_range=True):
     """Fanning friction factor:
     f = 9.6243 Re^-0.7422 alpha^-0.1856 delta^0.3053 gamma^-0.2659
         * [1 + 7.669e-8 Re^4.429 alpha^0.920 delta^3.767 gamma^0.236]^0.1
 
     Same validity check as above.
     """
-    if not (120 <= Re <= 10000):
+    if check_range and  not (120 <= Re <= 10000):
         raise ValueError(f"Re = {Re} is out of range for f_manglik_bergles")
     else:
         f = 9.6243 * Re**-0.7422 * fin.alpha**-0.1856 * fin.delta**0.3053 * fin.gamma**-0.2659 * (1 + 7.669e-8 * Re**4.429 * fin.alpha**0.920 * fin.delta**3.767 * fin.gamma**0.236)**0.1
@@ -143,7 +145,7 @@ def side_geometry(core, side):
 
 
 
-def side_performance(core, side, fluid):
+def side_performance(core, side, fluid, check_range=True):
     """Film coefficient, surface efficiency and pressure drop for one side.
 
     G   = m_dot / A_ff                 (mass velocity in the fin passages)
@@ -157,10 +159,10 @@ def side_performance(core, side, fluid):
     """
     G = fluid.m_dot / side_geometry(core, side)['A_ff']
     Re = G * side_geometry(core, side)['fin'].D_h / fluid.mu
-    h = j_manglik_bergles(Re, side_geometry(core, side)['fin']) * G * fluid.cp * fluid.Pr**(-2/3)
+    h = j_manglik_bergles(Re, side_geometry(core, side)['fin'], check_range=check_range) * G * fluid.cp * fluid.Pr**(-2/3)
     eta_f = fin_efficiency(h, core.k_metal, side_geometry(core, side)['fin'].t, side_geometry(core, side)['fin'].h / 2)
     eta_o = surface_efficiency(eta_f, side_geometry(core, side)['fin_area_fraction'])
-    dP = 4 * f_manglik_bergles(Re, side_geometry(core, side)['fin']) * (side_geometry(core, side)['L_flow'] / side_geometry(core, side)['fin'].D_h) * G**2 / (2 * fluid.rho)
+    dP = 4 * f_manglik_bergles(Re, side_geometry(core, side)['fin'], check_range=check_range) * (side_geometry(core, side)['L_flow'] / side_geometry(core, side)['fin'].D_h) * G**2 / (2 * fluid.rho)
     return dict(G=G, Re=Re, h=h, eta_f=eta_f, eta_o=eta_o, dP=dP)
 
 
@@ -188,7 +190,7 @@ def core_volume(core):
     return volume
 
 
-def rate_plate_fin(core, hot, cold):
+def rate_plate_fin(core, hot, cold, check_range=True):
     """Rating of a given core (properties fixed).
 
     1. side_performance for both sides
@@ -200,8 +202,8 @@ def rate_plate_fin(core, hot, cold):
     Returns dict(q, Th_out, Tc_out, UA, NTU, eps, dP_hot, dP_cold,
                  Re_hot, Re_cold, mass, volume, kW_per_kg).
     """
-    hot_perf = side_performance(core, 'hot', hot)
-    cold_perf = side_performance(core, 'cold', cold)
+    hot_perf = side_performance(core, 'hot', hot, check_range=check_range)
+    cold_perf = side_performance(core, 'cold', cold , check_range=check_range)
     RA = 1/((hot_perf['eta_o'] * hot_perf['h'] * side_geometry(core, 'hot')['A'])) + 1/(cold_perf['eta_o'] * cold_perf['h'] * side_geometry(core, 'cold')['A'])
     UA = 1 / RA
     Ch = heat_capacity_rate(hot.m_dot, hot.cp) 
@@ -217,3 +219,37 @@ def rate_plate_fin(core, hot, cold):
     kW_per_kg = q / mass * 1e-3
     return dict(q=q, Th_out=Th_out, Tc_out=Tc_out, UA=UA, NTU=NTU, eps=eps, dP_hot=hot_perf['dP'], dP_cold=cold_perf['dP'],
                 Re_hot=hot_perf['Re'], Re_cold=cold_perf['Re'], mass=mass, volume=volume, kW_per_kg=kW_per_kg)
+
+def rate_plate_fin_auto(core, hot_fluid, cold_fluid, m_hot, m_cold, Th_in, Tc_in,
+                        tol=0.01, max_iter=50):
+    """rate_plate_fin with properties evaluated at each stream's mean temperature.
+
+    Same pattern as rate_double_pipe_auto:
+      guess means = inlets -> props() -> Stream(...) (include rho!)
+      -> rate_plate_fin -> new means -> repeat until outlets change < tol.
+    Returns r plus 'iterations'. RuntimeError if not converged.
+    """
+    Th_mean, Tc_mean = Th_in, Tc_in        # first guess: inlet temperatures
+    Th_out_old, Tc_out_old = None, None
+
+
+    for i in range(1, max_iter + 1):
+        ph = props(hot_fluid, Th_mean)
+        pc = props(cold_fluid, Tc_mean)
+        hot = Stream(m_dot=m_hot, cp=ph["cp"], mu=ph["mu"], k=ph["k"], T_in=Th_in, rho=ph["rho"])
+        cold = Stream(m_dot=m_cold, cp=pc["cp"], mu=pc["mu"], k=pc["k"], T_in=Tc_in, rho=pc["rho"])
+
+        r = rate_plate_fin(core, hot, cold, check_range=False)
+        if Th_out_old is not None and Tc_out_old is not None:
+            if abs(r["Th_out"] - Th_out_old) < tol and abs(r["Tc_out"] - Tc_out_old) < tol:
+                r = rate_plate_fin(core, hot, cold, check_range=True)   # final, checked
+                r["iterations"] = i
+                return r
+
+        Th_mean = (Th_in + r["Th_out"]) / 2
+        Tc_mean = (Tc_in + r["Tc_out"]) / 2
+        Th_out_old, Tc_out_old = r["Th_out"], r["Tc_out"]
+
+    raise RuntimeError(f"rate_plate_fin_auto did not converge after {max_iter} iterations")
+
+
