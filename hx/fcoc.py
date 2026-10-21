@@ -55,3 +55,23 @@ def evaluate_mission(core, mission=MISSION, m_oil=M_OIL, T_oil_in=T_OIL_IN,
 def is_feasible(mission_results):
     """True only if every point is ok."""
     return all(v["ok"] for v in mission_results.values())
+
+def pareto_front(points):
+    """points: list of (mass, dP) tuples. Return the non-dominated ones, sorted by mass.
+
+    Design B dominates A if B is <= A in both mass and dP, and strictly < in at least one.
+
+    Simple O(n log n) approach:
+      - sort by mass (then dP)
+      - walk through in order, keeping a point only if its dP is lower
+        than every dP kept so far
+    """
+    # TODO
+    mass=sorted(points, key=lambda x: (x[0], x[1]))
+    dP_min=float('inf')
+    pareto=[]
+    for mass, dP in mass:
+        if dP<dP_min:
+            pareto.append((mass,dP))
+            dP_min=dP
+    return pareto

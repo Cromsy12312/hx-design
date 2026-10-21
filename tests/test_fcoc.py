@@ -43,3 +43,15 @@ def test_titanium_heavier_and_worse():
     r_ti = rate_plate_fin_auto(ti, "turbine_oil", "jet_fuel", 0.5, 1.10, 130, 40)
     assert r_ti["mass"] > 1.5 * r_al["mass"]
     assert r_ti["q"] < 0.65 * r_al["q"]
+
+from hx.fcoc import pareto_front
+
+
+def test_pareto_front_basic():
+    pts = [(1.0, 10), (2.0, 5), (1.5, 12), (3.0, 4), (2.5, 6)]
+    assert pareto_front(pts) == [(1.0, 10), (2.0, 5), (3.0, 4)]
+
+
+def test_pareto_front_single_and_ties():
+    assert pareto_front([(1.0, 1.0)]) == [(1.0, 1.0)]
+    assert pareto_front([(1.0, 5), (1.0, 3)]) == [(1.0, 3)]
