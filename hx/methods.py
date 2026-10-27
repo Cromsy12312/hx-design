@@ -120,10 +120,6 @@ def ntu_shell_1_2(eps, Cr):
     return NTU
 
 
-# TODO TOMMOROW
-#
-#
-#
 def effectiveness_crossflow_unmixed(NTU, Cr):
     """Crossflow, both fluids unmixed (Incropera Eq. 11.32)."""
     if np.isclose(Cr, 0):
@@ -143,7 +139,6 @@ def ntu_crossflow_unmixed(eps, Cr):
       - choose a bracket, e.g. a = 1e-6, b = 50
       - raise ValueError if eps is unreachable (f(b) still < 0)
     """
-    # TODO
     def f(NTU):
         return effectiveness_crossflow_unmixed(NTU, Cr) - eps
     try:
